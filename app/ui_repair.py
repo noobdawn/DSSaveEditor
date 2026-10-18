@@ -19,11 +19,12 @@ import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QSpinBox,
 )
 
 from . import i18n
 from .config import DATA_DIR
+from .datasource import QuestManager, USER_DBID
 from .ui_common import make_card
 
 
@@ -460,10 +461,251 @@ class DungeonRepairTab(QWidget):
 
 
 # ============================================================
+# 任务步骤修复子页
+# ============================================================
+class QuestRepairTab(QWidget):
+    """检测并修复进行中任务的步骤异常。
+
+    场景: 直接改任务步骤 (跳过中间步骤) 会导致游戏内 NPC/刷怪不生成,
+    任务卡死无法推进 (如冒险任务45卡在对话步骤)。本页可:
+      - 扫描进行中任务, 校验 STEP_ID 是否在有效范围内;
+      - 回退一步 / 重置到起始步骤 / 手动设为指定步骤, 让游戏重新执行步骤。
+    元数据来自 quest_data.json (steps.min/max/count)。
+    """
+
+    def __init__(self, data, main_window):
+        super().__init__()
+        self.data = data
+        self.main_window = main_window
+        self.qm = QuestManager(data)
+        self._rows = []      # [(qid, name, step, cnt, steps_meta, status_key)]
+        self._build()
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(8)
+
+        card, lay = make_card(str(i18n.tr("repair_page.quest_title")))
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
+
+        hint = QLabel(str(i18n.tr("repair_page.quest_hint")))
+        hint.setStyleSheet("color: #7f849c; font-size: 9pt;")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        self.scan_btn = QPushButton(str(i18n.tr("repair_page.btn_scan")))
+        self.scan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.scan_btn.clicked.connect(self._scan)
+        btn_row.addWidget(self.scan_btn)
+
+        self.back_btn = QPushButton(str(i18n.tr("repair_page.btn_step_back")))
+        self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.back_btn.clicked.connect(lambda: self._adjust_step(-1))
+        btn_row.addWidget(self.back_btn)
+
+        self.reset_btn = QPushButton(str(i18n.tr("repair_page.btn_step_reset")))
+        self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_btn.clicked.connect(self._reset_start)
+        btn_row.addWidget(self.reset_btn)
+        btn_row.addStretch(1)
+        lay.addLayout(btn_row)
+
+        # 手动设为指定步骤
+        set_row = QHBoxLayout()
+        set_row.setSpacing(6)
+        set_row.addWidget(QLabel(str(i18n.tr("repair_page.step_set_label"))))
+        self.step_spin = QSpinBox()
+        self.step_spin.setRange(0, 999)
+        self.step_spin.setValue(1)
+        set_row.addWidget(self.step_spin)
+        self.apply_btn = QPushButton(str(i18n.tr("repair_page.btn_step_apply")))
+        self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.apply_btn.clicked.connect(self._apply_step)
+        set_row.addWidget(self.apply_btn)
+        set_row.addStretch(1)
+        lay.addLayout(set_row)
+
+        self.summary_lbl = QLabel(str(i18n.tr("repair_page.quest_pending")))
+        self.summary_lbl.setStyleSheet("font-size: 9pt;")
+        lay.addWidget(self.summary_lbl)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels([
+            str(i18n.tr("repair_page.col_quest")),
+            str(i18n.tr("repair_page.col_step")),
+            str(i18n.tr("repair_page.col_range")),
+            str(i18n.tr("repair_page.col_status")),
+        ])
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.itemSelectionChanged.connect(self._on_select)
+        lay.addWidget(self.table, 1)
+
+        outer.addWidget(card)
+
+    def _on_select(self):
+        """选中行时把当前步骤填入 spin。"""
+        r = self.table.currentRow()
+        if 0 <= r < len(self._rows):
+            step = self._rows[r][2]
+            self.step_spin.setValue(int(step))
+
+    def reload(self):
+        self._scan()
+
+    # ---------- 扫描 ----------
+    def _scan(self):
+        self._rows = []
+        if not self.data.db_path:
+            self.summary_lbl.setText(str(i18n.tr("status.no_db")))
+            self.table.setRowCount(0)
+            return
+        try:
+            holds = self.data.select_all("tb_quest_hold")
+        except Exception:
+            holds = []
+        bad = 0
+        rows = []
+        for h in holds:
+            qid = int(h["QUEST_CID"])
+            step = int(h["STEP_ID"] or 0)
+            cnt = int(h["CNT"] or 0)
+            meta = self.qm.q(qid)
+            steps = meta.get("steps")
+            if not meta:
+                status = "unknown"
+                rng = "-"
+            elif not steps:
+                status = "no_steps"
+                rng = "-"
+            else:
+                smin, smax = int(steps.get("min", 0)), int(steps.get("max", 0))
+                rng = f"{smin} ~ {smax}"
+                if step < smin or step > smax:
+                    status = "bad"
+                else:
+                    status = "ok"
+            if status in ("bad", "unknown", "no_steps"):
+                bad += 1
+            name = self.qm.qname(qid) or f"ID {qid}"
+            rows.append((qid, name, step, cnt, steps, status, rng))
+        rows.sort(key=lambda x: x[0])
+        self._rows = rows
+
+        self.table.setRowCount(len(rows))
+        status_text = {
+            "ok": str(i18n.tr("repair_page.quest_status_ok")),
+            "bad": str(i18n.tr("repair_page.quest_status_bad")),
+            "no_steps": str(i18n.tr("repair_page.quest_status_no_steps")),
+            "unknown": str(i18n.tr("repair_page.quest_status_unknown")),
+        }
+        for i, (qid, name, step, cnt, steps, status, rng) in enumerate(rows):
+            self.table.setItem(i, 0, QTableWidgetItem(f"{qid}  {name}"))
+            self.table.setItem(i, 1, QTableWidgetItem(str(step)))
+            self.table.setItem(i, 2, QTableWidgetItem(rng))
+            item = QTableWidgetItem(str(status_text.get(status, status)))
+            if status in ("bad", "unknown"):
+                item.setForeground(Qt.GlobalColor.red)
+            elif status == "no_steps":
+                item.setForeground(Qt.GlobalColor.yellow)
+            self.table.setItem(i, 3, item)
+        self.table.resizeColumnsToContents()
+        self.table.setColumnWidth(0, max(self.table.columnWidth(0), 280))
+
+        if not rows:
+            self.summary_lbl.setText(str(i18n.tr("repair_page.quest_ok")))
+        elif bad:
+            self.summary_lbl.setText(str(i18n.tr("repair_page.quest_bad", n=bad)))
+        else:
+            self.summary_lbl.setText(str(i18n.tr("repair_page.quest_ok")))
+
+    # ---------- 修复 ----------
+    def _selected(self):
+        r = self.table.currentRow()
+        if r < 0 or r >= len(self._rows):
+            QMessageBox.information(self, str(i18n.tr("dialogs.confirm")),
+                                    str(i18n.tr("repair_page.quest_select_first")))
+            return None
+        return self._rows[r]
+
+    def _set_step(self, row, new_step):
+        """更新任务步骤 (CNT 归零)。"""
+        qid = row[0]
+        try:
+            self.data.execute(
+                "UPDATE tb_quest_hold SET STEP_ID=?, CNT=0 WHERE USER_DBID=? AND QUEST_CID=?",
+                (int(new_step), USER_DBID, qid))
+        except Exception as ex:
+            QMessageBox.critical(self, str(i18n.tr("status.error")), str(ex))
+            return False
+        return True
+
+    def _adjust_step(self, delta):
+        row = self._selected()
+        if row is None:
+            return
+        qid, name, step, cnt, steps, status, rng = row
+        if not steps:
+            QMessageBox.information(self, str(i18n.tr("repair_page.quest_title")),
+                                    str(i18n.tr("repair_page.quest_status_no_steps")))
+            return
+        smin, smax = int(steps.get("min", 0)), int(steps.get("max", 0))
+        new_step = max(smin, min(smax, step + delta))
+        if new_step == step:
+            self.main_window.set_status(str(i18n.tr("repair_page.quest_step_same")))
+            return
+        if not self._set_step(row, new_step):
+            return
+        self.main_window.set_status(str(i18n.tr("repair_page.quest_step_changed", name=name, step=new_step)))
+        self._scan()
+
+    def _reset_start(self):
+        row = self._selected()
+        if row is None:
+            return
+        qid, name, step, cnt, steps, status, rng = row
+        if not steps:
+            QMessageBox.information(self, str(i18n.tr("repair_page.quest_title")),
+                                    str(i18n.tr("repair_page.quest_status_no_steps")))
+            return
+        smin = int(steps.get("min", 0))
+        if not self._set_step(row, smin):
+            return
+        self.main_window.set_status(str(i18n.tr("repair_page.quest_step_changed", name=name, step=smin)))
+        self._scan()
+
+    def _apply_step(self):
+        row = self._selected()
+        if row is None:
+            return
+        qid, name, step, cnt, steps, status, rng = row
+        target = int(self.step_spin.value())
+        if steps:
+            smin, smax = int(steps.get("min", 0)), int(steps.get("max", 0))
+            if target < smin or target > smax:
+                QMessageBox.information(
+                    self, str(i18n.tr("repair_page.quest_title")),
+                    str(i18n.tr("repair_page.quest_step_out_of_range", min=smin, max=smax)))
+                return
+        if not self._set_step(row, target):
+            return
+        self.main_window.set_status(str(i18n.tr("repair_page.quest_step_changed", name=name, step=target)))
+        self._scan()
+
+
+# ============================================================
 # 修复页容器
 # ============================================================
 class RepairPage(QWidget):
-    """异常修复页: QTabWidget 承载各子功能 (时间修复/副本修复等)。"""
+    """异常修复页: QTabWidget 承载各子功能 (时间/副本/任务步骤修复)。"""
 
     def __init__(self, data, names, main_window):
         super().__init__()
@@ -475,6 +717,8 @@ class RepairPage(QWidget):
         self.tabs.addTab(self.time_tab, str(i18n.tr("repair_page.tab_time")))
         self.dungeon_tab = DungeonRepairTab(data, main_window)
         self.tabs.addTab(self.dungeon_tab, str(i18n.tr("repair_page.tab_dungeon")))
+        self.quest_tab = QuestRepairTab(data, main_window)
+        self.tabs.addTab(self.quest_tab, str(i18n.tr("repair_page.tab_quest")))
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.tabs)
@@ -482,3 +726,4 @@ class RepairPage(QWidget):
     def reload(self):
         self.time_tab.reload()
         self.dungeon_tab.reload()
+        self.quest_tab.reload()

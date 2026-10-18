@@ -464,6 +464,27 @@
     "col_unlock": "解锁条件",
     "dungeon_fix_confirm": "确定将 {n} 个缺失副本组写入 tb_active_dungeon？写入存档时会自动备份。",
     "dungeon_fixed": "已补齐 {n} 个副本组。记得保存存档（写入前自动备份）。",
-    "unlock_quest": "任务 {qid} 已完成"
+    "unlock_quest": "任务 {qid} 已完成",
+    "tab_quest": "任务步骤修复",
+    "quest_title": "进行中任务",
+    "quest_hint": "检测进行中任务的步骤是否越界（例如直接改到后面的步骤、跳过中间步骤，导致游戏内 NPC/怪物没有生成，任务卡死无法推进）。选中任务后可「回退一步」「重置到起始步骤」或手动设为指定步骤，让游戏重新执行该步骤。",
+    "quest_pending": "点击「扫描检测」检查进行中任务。",
+    "quest_ok": "未发现异常任务步骤。",
+    "quest_bad": "发现 {n} 个异常任务，选中后可修复。",
+    "quest_select_first": "请先在列表中选择一个任务。",
+    "quest_status_ok": "正常",
+    "quest_status_bad": "步骤越界",
+    "quest_status_no_steps": "无步骤数据",
+    "quest_status_unknown": "未知任务",
+    "col_quest": "任务",
+    "col_step": "当前步骤",
+    "col_range": "有效范围",
+    "btn_step_back": "回退一步",
+    "btn_step_reset": "重置到起始步骤",
+    "btn_step_apply": "应用",
+    "step_set_label": "设为步骤：",
+    "quest_step_changed": "任务 {name}：步骤已设为 {step}，记得保存存档。",
+    "quest_step_same": "已经在起始步骤。",
+    "quest_step_out_of_range": "步骤必须在 {min} ~ {max} 之间。"
   }
 }

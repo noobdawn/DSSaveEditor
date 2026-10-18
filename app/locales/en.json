@@ -464,6 +464,27 @@
     "col_unlock": "Unlock Quest",
     "dungeon_fix_confirm": "Add {n} missing dungeon group(s) to tb_active_dungeon? Backup will be created automatically on save.",
     "dungeon_fixed": "Added {n} dungeon group(s). Remember to Save the save file.",
-    "unlock_quest": "Quest {qid} completed"
+    "unlock_quest": "Quest {qid} completed",
+    "tab_quest": "Quest Step Repair",
+    "quest_title": "In-progress Quests",
+    "quest_hint": "Detects in-progress quests whose step is outside the valid range (e.g. step was changed directly, skipping intermediate steps, so NPCs/monsters never spawned and the quest is stuck). Select a quest, then roll back one step, reset to the first step, or set a specific step to let the game re-run it.",
+    "quest_pending": "Click Scan to check in-progress quests.",
+    "quest_ok": "No abnormal quest steps found.",
+    "quest_bad": "Found {n} abnormal in-progress quest(s). Select one and repair.",
+    "quest_select_first": "Select a quest in the list first.",
+    "quest_status_ok": "Normal",
+    "quest_status_bad": "Step out of range",
+    "quest_status_no_steps": "No step data",
+    "quest_status_unknown": "Unknown quest",
+    "col_quest": "Quest",
+    "col_step": "Current Step",
+    "col_range": "Valid Range",
+    "btn_step_back": "Step Back",
+    "btn_step_reset": "Reset to First Step",
+    "btn_step_apply": "Apply",
+    "step_set_label": "Set step to:",
+    "quest_step_changed": "Quest {name}: step set to {step}. Remember to Save.",
+    "quest_step_same": "Already at the first step.",
+    "quest_step_out_of_range": "Step must be between {min} and {max}."
   }
 }
