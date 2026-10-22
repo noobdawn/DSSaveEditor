@@ -270,6 +270,21 @@ class RunePage(QWidget):
         self._rebuild_list()
 
 
+def gem_stat_cid(item_cid):
+    """符文 ITEM_CID -> STAT_INFO_CID (GemNewStatData.GemStatID, 100% 档)。
+
+    规则: ITEM_CID 结构 1310XYZ
+      X  = 品质 (0破损/1完整/2精炼/3璀璨/4完美)
+      YZ = 系别 (01斗志/02守护/03活力/04专注/05增幅)
+    组 = (品质+1)*100 + (系别-1)  -> 100~104 / 200~204 / ... / 500~504
+    STAT_INFO_CID = 组*100 + 档位 (01=100%)
+    写入 0 会被游戏忽略 (符文不显示)。
+    """
+    quality = (int(item_cid) // 100) % 10
+    series = int(item_cid) % 100
+    return ((quality + 1) * 100 + (series - 1)) * 100 + 1
+
+
 # ============================================================
 # 新增符文对话框
 # ============================================================
@@ -354,13 +369,7 @@ class AddRuneDialog(QDialog):
         cid = int(cur.data(Qt.ItemDataRole.UserRole))
         cnt = self.count_spin.value()
         now = int(time.time())
-        # STAT_INFO_CID = GemNewStatData.GemStatID, 游戏据此关联符文属性+档位 (0 会被游戏忽略)。
-        # ITEM_CID 结构 1310XYZ: X=品质(0破损/1完整/2精炼/3璀璨/4完美), YZ=系别(01斗志..05增幅)。
-        # GemNewStatData 组 = 品质*100 + 系别偏移 (100-104破损, 200-204完整, 300-304精炼, 400-404璀璨, 500-504完美);
-        # GemStatID = 组*100 + 档位 (01=100%, 02=80%..); 这里取 100% 档。
-        quality = (cid // 100) % 10        # 0..4
-        series = cid % 100                 # 1..5
-        stat_cid = ((quality + 1) * 100 + (series - 1)) * 100 + 1
+        stat_cid = gem_stat_cid(cid)
         try:
             for _ in range(cnt):
                 new_dbid = self._new_item_dbid()

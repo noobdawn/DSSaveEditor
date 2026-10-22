@@ -468,6 +468,13 @@
   "open_type": "TYPE_NONE",
   "open_value": 0
  },
+ "600061": {
+  "id": 600061,
+  "memo": "오셀로 영웅 의뢰 던전",
+  "name": "沉睡之龙圣所",
+  "open_type": "TYPE_NONE",
+  "open_value": 0
+ },
  "970000": {
   "id": 970000,
   "memo": "테스트 맵 그룹",

@@ -15,6 +15,9 @@ config.json
 .opencode/
 *.db.decrypted
 
+# 项目文档 (仅本地保留, 不提交)
+docs/
+
 # PyInstaller 构建产物
 build/
 dist/
